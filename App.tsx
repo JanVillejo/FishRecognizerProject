@@ -1,45 +1,22 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, {useEffect} from 'react';
+import AppNavigator from './src/navigation/AppNavigator';
+import {getModel} from './src/services/model/modelService';
 
-import { NewAppScreen } from '@react-native/new-app-screen';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+export default function App() {
+  useEffect(() => {
+    const preload = async () => {
+      try {
+        console.log('App mounted — starting model preload...');
+        await getModel();
+        console.log('Model preload complete — app ready');
+      } catch (e) {
+        // Silently fail — model will load on first recognition attempt
+        console.warn('Model preload skipped:', e);
+      }
+    };
 
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+    preload();
+  }, []);
 
-  return (
-    <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-      <AppContent />
-    </SafeAreaProvider>
-  );
+  return <AppNavigator />;
 }
-
-function AppContent() {
-  const safeAreaInsets = useSafeAreaInsets();
-
-  return (
-    <View style={styles.container}>
-      <NewAppScreen
-        templateFileName="App.tsx"
-        safeAreaInsets={safeAreaInsets}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-});
-
-export default App;
