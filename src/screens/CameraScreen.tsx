@@ -11,11 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {Camera, useCameraDevice} from 'react-native-vision-camera';
-import {useIsFocused, useFocusEffect} from '@react-navigation/native';
+import {Camera, useCameraDevice, useCameraPermission} from 'react-native-vision-camera';
+import {useIsFocused} from '@react-navigation/native';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../types/navigation';
+import {logger} from '../services/utils/logger';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Camera'>;
 
@@ -24,37 +25,35 @@ export default function CameraScreen({navigation}: Props) {
   const cameraRef = useRef<Camera>(null);
   const isFocused = useIsFocused();
 
-  const [hasPermission, setHasPermission] = useState(false);
+  const {hasPermission, requestPermission} = useCameraPermission();
   const [cameraReady, setCameraReady] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [flash, setFlash] = useState<'off' | 'on'>('off');
+  const [isCameraActive, setIsCameraActive] = useState(false);
 
-  // ✅ Request camera permission with popup style when screen is focused
-  useFocusEffect(
-    useCallback(() => {
-      const requestPermission = async () => {
-        try {
-          const result = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.CAMERA,
-            {
-              title: 'Camera Permission',
-              message: 'FishRecognizer needs camera access to identify fish.',
-              buttonPositive: 'Allow',
-              buttonNegative: 'Deny',
-            },
-          );
-          const granted = result === PermissionsAndroid.RESULTS.GRANTED;
-          console.log('Camera permission:', result, '| granted:', granted);
-          setHasPermission(granted);
-        } catch (e) {
-          console.warn('Permission error:', e);
-          setHasPermission(false);
-        }
-      };
-
+  // ✅ Request permission when screen is focused or on mount
+  React.useEffect(() => {
+    if (!hasPermission) {
+      logger.log('Requesting camera permission...');
       requestPermission();
-    }, []),
-  );
+    }
+  }, [hasPermission, requestPermission]);
+
+  // ✅ Delayed camera activation to prevent "Fatal Camera Error" on mount
+  React.useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    if (isFocused && hasPermission) {
+      // Small delay to ensure native layer is ready
+      timeout = setTimeout(() => {
+        logger.log('Activating camera session...');
+        setIsCameraActive(true);
+      }, 500);
+    } else {
+      setIsCameraActive(false);
+      setCameraReady(false);
+    }
+    return () => clearTimeout(timeout);
+  }, [isFocused, hasPermission]);
 
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current || !cameraReady || isCapturing) return;
@@ -65,10 +64,10 @@ export default function CameraScreen({navigation}: Props) {
       const uri = photo.path.startsWith('file://')
         ? photo.path
         : `file://${photo.path}`;
-      console.log('Captured:', uri);
+      logger.log('Captured:', uri);
       navigation.navigate('Preview', {imageUri: uri});
     } catch (e) {
-      console.error('Capture error:', e);
+      logger.error('Capture error:', e);
       Alert.alert('Error', 'Failed to capture image');
     } finally {
       setIsCapturing(false);
@@ -105,7 +104,7 @@ export default function CameraScreen({navigation}: Props) {
 
       navigation.navigate('Preview', {imageUri});
     } catch (error) {
-      console.error('Gallery picker failed:', error);
+      logger.error('Gallery picker failed:', error);
       Alert.alert('Gallery Error', 'Unable to select image.');
     }
   }, [navigation]);
@@ -159,15 +158,16 @@ export default function CameraScreen({navigation}: Props) {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         device={device}
-        isActive={isFocused && hasPermission}
+        isActive={isCameraActive}
         photo={true}
+        audio={false}
         onInitialized={() => {
-          console.log('Camera initialized');
+          logger.log('Camera initialized successfully');
           setCameraReady(true);
         }}
         onError={error => {
-          console.error('Camera error:', error);
-          Alert.alert('Camera Error', 'Unable to start camera.');
+          logger.error('Camera runtime error:', error.code, error.message);
+          Alert.alert('Camera Error', `Unable to start camera: ${error.message}`);
         }}
       />
 

@@ -3,30 +3,31 @@ import {loadTensorflowModel} from 'react-native-fast-tflite';
 import {preprocessImage} from './preprocess';
 import {decodeYoloOutput} from './postprocess';
 import RNFS from 'react-native-fs';
+import {logger} from '../utils/logger';
 
 let model: any = null;
 
 export async function getModel() {
   if (!model) {
     try {
-      console.log('Loading TFLite model...');
+      logger.log('Loading TFLite model...');
 
       const destPath = `${RNFS.DocumentDirectoryPath}/best_float32.tflite`;
       const exists = await RNFS.exists(destPath);
 
       if (!exists) {
-        console.log('Copying model from assets...');
+        logger.log('Copying model from assets...');
         await RNFS.copyFileAssets('best_float32.tflite', destPath);
-        console.log('Model copied successfully');
+        logger.log('Model copied successfully');
       }
 
       model = await loadTensorflowModel({
         url: `file://${destPath}`,
       });
 
-      console.log('TFLite model loaded successfully');
+      logger.log('TFLite model loaded successfully');
     } catch (e) {
-      console.error('Model loading failed:', e);
+      logger.error('Model loading failed:', e);
       model = null;
       throw e;
     }
@@ -37,7 +38,7 @@ export async function getModel() {
 
 export async function runFishRecognition(imageUri: string) {
   try {
-    console.log('Running recognition for:', imageUri);
+    logger.log('Running recognition for:', imageUri);
 
     const tflite = await getModel();
     const prep = await preprocessImage(imageUri);
@@ -46,8 +47,8 @@ export async function runFishRecognition(imageUri: string) {
       throw new Error('Invalid input tensor from preprocessor');
     }
 
-    console.log('Input tensor length:', prep.inputTensor.length, '| expected:', 640 * 640 * 3);
-    console.log('Input first 20 values:', JSON.stringify(Array.from(prep.inputTensor.slice(0, 20))));
+    logger.log('Input tensor length:', prep.inputTensor.length, '| expected:', 640 * 640 * 3);
+    logger.log('Input first 20 values:', JSON.stringify(Array.from(prep.inputTensor.slice(0, 20))));
 
     const outputs = tflite.runSync([prep.inputTensor]);
 
@@ -55,16 +56,16 @@ export async function runFishRecognition(imageUri: string) {
       throw new Error('Model returned empty output');
     }
 
-    console.log('Output count:', outputs.length);
-    console.log('Output[0] type:', outputs[0]?.constructor?.name);
-    console.log('Output[0] length:', outputs[0]?.length);
+    logger.log('Output count:', outputs.length);
+    logger.log('Output[0] type:', outputs[0]?.constructor?.name);
+    logger.log('Output[0] length:', outputs[0]?.length);
 
     const sample = Array.from(outputs[0]?.slice(0, 20) || []);
-    console.log('Output[0] first 20 values:', JSON.stringify(sample));
+    logger.log('Output[0] first 20 values:', JSON.stringify(sample));
 
     const detections = decodeYoloOutput(outputs);
 
-    console.log('Final detections:', detections.length);
+    logger.log('Final detections:', detections.length);
 
     if (!detections || detections.length === 0) {
       return {
@@ -76,7 +77,7 @@ export async function runFishRecognition(imageUri: string) {
 
     const best = detections.sort((a, b) => b.score - a.score)[0];
 
-    console.log('Best detection:', best);
+    logger.log('Best detection:', best);
 
     return {
       status: 'identified' as const,
@@ -89,7 +90,7 @@ export async function runFishRecognition(imageUri: string) {
       },
     };
   } catch (error) {
-    console.error('Inference error:', error);
+    logger.error('Inference error:', error);
 
     return {
       status: 'unidentified' as const,
