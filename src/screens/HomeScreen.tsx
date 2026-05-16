@@ -12,7 +12,7 @@ export default function HomeScreen({navigation}: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Image
-          source={require('../assets/images/homescreen.png')}
+          source={require('../assets/images/img.png')}
           style={styles.logo}
           resizeMode="contain"
         />

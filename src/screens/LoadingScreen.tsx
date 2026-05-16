@@ -1,8 +1,9 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useRef} from 'react';
 import {
   ActivityIndicator,
   Image,
-  SafeAreaView,
+  Platform,
+  StatusBar,
   StyleSheet,
   Text,
   View,
@@ -15,22 +16,34 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Loading'>;
 
 export default function LoadingScreen({navigation, route}: Props) {
   const {imageUri} = route.params;
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     async function runInference() {
       try {
+        if (!imageUri || typeof imageUri !== 'string') {
+          throw new Error('Invalid image URI passed to LoadingScreen');
+        }
+
         const result = await runFishRecognition(imageUri);
-        if (!mounted) return;
+
+        if (!mountedRef.current) return;
+
+        if (!result || typeof result !== 'object') {
+          throw new Error('runFishRecognition returned a non-object result');
+        }
 
         if (result.status === 'identified') {
           navigation.replace('Result', {
             result: {
               status: 'identified' as const,
-              imageUri: result.imageUri,
+              imageUri: result.imageUri ?? imageUri,
               species: result.species,
-              confidence: result.confidence ?? 0,
+              confidence: typeof result.confidence === 'number' ? result.confidence : 0,
+              // ✅ Pass all detections through to ResultScreen
+              detections: result.detections ?? [],
               detection: result.detection,
             },
           });
@@ -38,19 +51,22 @@ export default function LoadingScreen({navigation, route}: Props) {
           navigation.replace('Unidentified', {
             result: {
               status: 'unidentified' as const,
-              imageUri: result.imageUri,
-              reason: (result as any).reason || 'No fish detected.',
+              imageUri: result.imageUri ?? imageUri,
+              reason:
+                typeof (result as any).reason === 'string'
+                  ? (result as any).reason
+                  : 'No fish detected.',
             },
           });
         }
       } catch (error) {
         console.error('Recognition failed:', error);
-        if (!mounted) return;
+        if (!mountedRef.current) return;
         navigation.replace('Unidentified', {
           result: {
             status: 'unidentified' as const,
             imageUri,
-            reason: 'Inference error occurred.',
+            reason: 'An error occurred during identification. Please try again.',
           },
         });
       }
@@ -59,28 +75,24 @@ export default function LoadingScreen({navigation, route}: Props) {
     runInference();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
     };
   }, [navigation, imageUri]);
 
   return (
     <View style={styles.container}>
-      {/* Background image with reduced opacity */}
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <Image
         source={{uri: imageUri}}
         style={styles.backgroundImage}
-        blurRadius={2}
+        resizeMode="cover"
       />
-
-      {/* Dark overlay to dim the image */}
       <View style={styles.overlay} />
-
-      {/* Centered loading content */}
-      <SafeAreaView style={styles.content}>
+      <View style={styles.content}>
         <ActivityIndicator size="large" color="#FFFFFF" />
         <Text style={styles.title}>Identifying Species...</Text>
         <Text style={styles.subtitle}>Please wait</Text>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -88,16 +100,19 @@ export default function LoadingScreen({navigation, route}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#111111',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight ?? 0 : 0,
   },
   backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    resizeMode: 'cover',
-    opacity: 0.45,  // ← lowered opacity to dim the image
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    width: '100%',
+    height: '100%',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',  // ← dark overlay on top
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   content: {
     flex: 1,

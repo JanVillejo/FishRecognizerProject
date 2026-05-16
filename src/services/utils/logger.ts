@@ -1,9 +1,3 @@
-/**
- * Logger Service
- * Centralized logging to manage console outputs and potentially 
- * send logs to a remote service or file in the future.
- */
-
 const LOG_PREFIX = '[FishRecognizer]';
 
 export const logger = {
@@ -21,4 +15,4 @@ export const logger = {
       console.log(`${LOG_PREFIX} [DEBUG] ${message}`, ...args);
     }
   },
-};
+

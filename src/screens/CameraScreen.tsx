@@ -1,4 +1,4 @@
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -6,6 +6,7 @@ import {
   Linking,
   PermissionsAndroid,
   Platform,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,6 +15,12 @@ import {
 import {Camera, useCameraDevice, useCameraPermission} from 'react-native-vision-camera';
 import {useIsFocused} from '@react-navigation/native';
 import {launchImageLibrary} from 'react-native-image-picker';
+=======
+// ✅ No Vision Camera, no Nitro, no JSI binding issues.
+//    launchCamera opens the system camera app directly — works on all Android
+//    devices including MediaTek-based ones like Galaxy A12.
+import {launchCamera, launchImageLibrary} from 'react-native-image-picker';
+>>>>>>> 71e7b45 (Updated and fixed release version)
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../types/navigation';
 import {logger} from '../services/utils/logger';
@@ -54,9 +61,52 @@ export default function CameraScreen({navigation}: Props) {
     }
     return () => clearTimeout(timeout);
   }, [isFocused, hasPermission]);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [permissionChecked, setPermissionChecked] = useState(false);
+
+  // ✅ Request permission then immediately launch camera —
+  //    user goes straight into the native camera app with live preview.
+  //    They never see the dark placeholder screen.
+  useEffect(() => {
+    const requestAndLaunch = async () => {
+      try {
+        if (Platform.OS === 'android') {
+          const result = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.CAMERA,
+            {
+              title: 'Camera Permission',
+              message: 'FishRecognizer needs camera access to identify fish.',
+              buttonPositive: 'Allow',
+              buttonNegative: 'Deny',
+            },
+          );
+          const granted = result === PermissionsAndroid.RESULTS.GRANTED;
+          setPermissionGranted(granted);
+          setPermissionChecked(true);
+
+          if (granted) {
+            // Small delay to let the screen finish mounting before launching
+            setTimeout(() => handleCapture(), 300);
+          }
+        } else {
+          setPermissionGranted(true);
+          setPermissionChecked(true);
+          setTimeout(() => handleCapture(), 300);
+        }
+      } catch (e) {
+        logger.warn('Permission error:', e);
+        setPermissionGranted(false);
+        setPermissionChecked(true);
+      }
+    };
+
+    requestAndLaunch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCapture = useCallback(async () => {
-    if (!cameraRef.current || !cameraReady || isCapturing) return;
+    if (isCapturing) return;
 
     setIsCapturing(true);
     try {
@@ -69,10 +119,38 @@ export default function CameraScreen({navigation}: Props) {
     } catch (e) {
       logger.error('Capture error:', e);
       Alert.alert('Error', 'Failed to capture image');
+      const result = await launchCamera({
+        mediaType: 'photo',
+        quality: 1,
+        saveToPhotos: false,
+      });
+
+      if (result.didCancel) return;
+
+      if (result.errorCode) {
+        logger.error('Camera error:', result.errorCode, result.errorMessage);
+        Alert.alert(
+          'Camera Error',
+          result.errorMessage ?? 'Failed to open camera.',
+        );
+        return;
+      }
+
+      const imageUri = result.assets?.[0]?.uri;
+      if (!imageUri) {
+        Alert.alert('No image captured', 'Please try again.');
+        return;
+      }
+
+      logger.log('Captured:', imageUri);
+      navigation.navigate('Preview', {imageUri});
+    } catch (e) {
+      logger.error('Capture error:', e);
+      Alert.alert('Error', 'Failed to capture image. Please try again.');
     } finally {
       setIsCapturing(false);
     }
-  }, [cameraReady, isCapturing, flash, navigation]);
+  }, [isCapturing, navigation]);
 
   const handlePickFromGallery = useCallback(async () => {
     try {
@@ -109,49 +187,41 @@ export default function CameraScreen({navigation}: Props) {
     }
   }, [navigation]);
 
-  const handleFlashToggle = () => {
-    setFlash(prev => (prev === 'off' ? 'on' : 'off'));
-  };
-
-  // 🚫 No camera device found
-  if (!device) {
+  // Still checking permission
+  if (!permissionChecked) {
     return (
-      <View style={styles.permissionContainer}>
-        <Text style={styles.permissionTitle}>No camera found</Text>
-        <TouchableOpacity
-          style={styles.galleryButton}
-          onPress={handlePickFromGallery}>
-          <Text style={styles.galleryButtonText}>Open Gallery Instead</Text>
-        </TouchableOpacity>
+      <View style={styles.centeredContainer}>
+        <ActivityIndicator size="large" color="#FFFFFF" />
+        <Text style={styles.statusText}>Checking camera access...</Text>
       </View>
     );
   }
 
-  // 🚫 Permission not granted
-  if (!hasPermission) {
+  // Permission denied
+  if (!permissionGranted) {
     return (
-      <View style={styles.permissionContainer}>
+      <View style={styles.centeredContainer}>
         <Text style={styles.permissionTitle}>Camera permission needed</Text>
         <Text style={styles.permissionText}>
           Please allow camera access to capture fish images.
         </Text>
-
         <TouchableOpacity
-          style={styles.galleryButton}
+          style={styles.primaryButton}
           onPress={handlePickFromGallery}>
-          <Text style={styles.galleryButtonText}>Open Gallery Instead</Text>
+          <Text style={styles.primaryButtonText}>Open Gallery Instead</Text>
         </TouchableOpacity>
-
-        {/* ✅ New button to open app settings */}
         <TouchableOpacity
-          style={[styles.galleryButton, {marginTop: 12}]}
+          style={[styles.primaryButton, {marginTop: 12}]}
           onPress={() => Linking.openSettings()}>
-          <Text style={styles.galleryButtonText}>Open App Settings</Text>
+          <Text style={styles.primaryButtonText}>Open App Settings</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
+  // ✅ Permission granted — show capture UI
+  //    No camera preview needed since launchCamera opens the system camera app.
+  //    The UI here is just the entry point before the system camera launches.
   return (
     <View style={styles.container}>
       <Camera
@@ -170,20 +240,24 @@ export default function CameraScreen({navigation}: Props) {
           Alert.alert('Camera Error', `Unable to start camera: ${error.message}`);
         }}
       />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {!cameraReady && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#FFFFFF" />
-          <Text style={styles.loadingText}>Starting camera...</Text>
-        </View>
-      )}
+      {/* Dark background with fish icon as visual context */}
+      <View style={styles.previewPlaceholder}>
+        <ActivityIndicator size="large" color="#FFFFFF" style={{marginBottom: 20}} />
+        <Text style={styles.placeholderText}>
+          Opening camera...
+        </Text>
+      </View>
 
+      {/* Back button */}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.navigate('Home')}>
         <Text style={styles.backText}>‹</Text>
       </TouchableOpacity>
 
+      {/* Bottom controls */}
       <View style={styles.bottomControls}>
         <TouchableOpacity
           style={styles.sideButton}
@@ -198,17 +272,15 @@ export default function CameraScreen({navigation}: Props) {
           style={[styles.captureOuter, isCapturing && styles.captureDisabled]}
           onPress={handleCapture}
           disabled={isCapturing}>
-          <View style={styles.captureInner} />
+          {isCapturing ? (
+            <ActivityIndicator size="small" color="#000000" />
+          ) : (
+            <View style={styles.captureInner} />
+          )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.sideButton,
-            flash === 'on' && styles.flashButtonActive,
-          ]}
-          onPress={handleFlashToggle}>
-          <Text style={styles.flashIcon}>⚡</Text>
-        </TouchableOpacity>
+        {/* Empty view to keep layout balanced */}
+        <View style={styles.sideButton} />
       </View>
     </View>
   );
@@ -217,14 +289,35 @@ export default function CameraScreen({navigation}: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#0A0A0A',
   },
-  permissionContainer: {
+  centeredContainer: {
     flex: 1,
     backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+  },
+  previewPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  placeholderText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 15,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  statusText: {
+    color: '#CFCFCF',
+    fontSize: 14,
+    marginTop: 12,
+    textAlign: 'center',
   },
   permissionTitle: {
     color: '#FFFFFF',
@@ -239,14 +332,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 18,
   },
-  galleryButton: {
+  primaryButton: {
     backgroundColor: '#FFFFFF',
     paddingVertical: 13,
     paddingHorizontal: 24,
     borderRadius: 12,
     marginTop: 12,
   },
-  galleryButtonText: {
+  primaryButtonText: {
     color: '#123A8C',
     fontWeight: '700',
   },
@@ -305,25 +398,5 @@ const styles = StyleSheet.create({
   },
   captureDisabled: {
     opacity: 0.4,
-  },
-  flashIcon: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  flashButtonActive: {
-    backgroundColor: '#123A8C',
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    color: '#FFFFFF',
-    marginTop: 12,
-    fontSize: 14,
-    fontWeight: '500',
   },
 });

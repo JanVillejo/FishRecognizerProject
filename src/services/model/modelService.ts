@@ -1,4 +1,3 @@
-//modelService
 import {loadTensorflowModel} from 'react-native-fast-tflite';
 import {preprocessImage} from './preprocess';
 import {decodeYoloOutput} from './postprocess';
@@ -75,19 +74,19 @@ export async function runFishRecognition(imageUri: string) {
       };
     }
 
-    const best = detections.sort((a, b) => b.score - a.score)[0];
-
-    logger.log('Best detection:', best);
+    // ✅ Sort all detections by confidence descending
+    const sorted = [...detections].sort((a, b) => b.confidence - a.confidence
 
     return {
       status: 'identified' as const,
       imageUri,
-      species: best.label,
-      confidence: best.confidence,
-      detection: {
-        ...best,
-        confidence: best.confidence,
-      },
+      // ✅ Primary species is still the highest confidence one
+      species: sorted[0].label,
+      confidence: sorted[0].confidence,
+      // ✅ All detections passed through — ResultScreen renders all of them
+      detections: sorted,
+      // ✅ Keep single detection for bounding box overlay compatibility
+      detection: sorted[0],
     };
   } catch (error) {
     logger.error('Inference error:', error);

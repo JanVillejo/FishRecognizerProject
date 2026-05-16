@@ -1,7 +1,9 @@
 buildscript {
     ext {
         buildToolsVersion = "36.0.0"
-        minSdkVersion = 24
+        // ✅ Vision Camera v5 requires minSdk >= 26. SDK 24-25 causes the native
+        //    camera session to silently fail to bind, making takePhoto undefined.
+        minSdkVersion = 26
         compileSdkVersion = 36
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"

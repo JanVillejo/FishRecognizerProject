@@ -13,6 +13,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../types/navigation';
 import {COLORS} from '../themes/colors';
 import DetectionBoxOverlay from '../components/DetectionBoxOverlay';
+import {Detection} from '../services/model/postprocess';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
 
@@ -40,30 +41,11 @@ function getLocalInfo(species: string) {
     case 'buraw':
       return 'No additional local information available.';
     case 'tamarong':
-      return 'Tamarong with a long and beautifully curved tail are commonly recognized by local fishers.';
+      return 'Tamarong with a long and beautifully curved tail are typically gay.';
     case 'tikab':
       return 'Young Tikab are locally known as "Sipi-sipi".';
     default:
       return 'No additional local information available.';
-  }
-}
-
-function getLocalName(species: string) {
-  switch (species.toLowerCase()) {
-    case 'barongoy':
-      return 'Swasid';
-    case 'barunday':
-      return 'Mangsi';
-    case 'borot':
-      return 'Borot-tibol';
-    case 'buraw':
-      return 'N/A';
-    case 'tamarong':
-      return 'Tamarong';
-    case 'tikab':
-      return 'Sipi-sipi';
-    default:
-      return 'N/A';
   }
 }
 
@@ -86,14 +68,79 @@ function getPeakSeason(species: string) {
   }
 }
 
+// ✅ Individual detection card — rendered once per detected species
+function DetectionCard({
+  detection,
+  index,
+  isFirst,
+}: {
+  detection: Detection;
+  index: number;
+  isFirst: boolean;
+}) {
+  const speciesName = prettifyLabel(detection.label);
+  const confidenceText = formatConfidence(detection.confidence);
+  const localInfo = getLocalInfo(detection.label);
+  const peakSeason = getPeakSeason(detection.label);
+
+  return (
+    <View style={[styles.detectionCard, !isFirst && styles.detectionCardBorder]}>
+      {/* Detection number badge */}
+      <View style={styles.detectionBadgeRow}>
+        <View style={styles.detectionBadge}>
+          <Text style={styles.detectionBadgeText}>#{index + 1}</Text>
+        </View>
+        {isFirst && (
+          <View style={styles.topPickBadge}>
+            <Text style={styles.topPickText}>Top Detection</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Species name */}
+      <Text style={styles.speciesTitle}>{speciesName}</Text>
+
+      {/* Confidence + Peak Season row */}
+      <View style={styles.infoRow}>
+        <View style={styles.confidenceBlock}>
+          <View style={styles.infoLabelRow}>
+            <Text style={styles.infoIcon}>✦</Text>
+            <Text style={styles.infoLabel}> Confidence</Text>
+          </View>
+          <Text style={styles.confidenceValue}>{confidenceText}</Text>
+        </View>
+
+        <View style={styles.separator} />
+
+        <View style={styles.localBlock}>
+          <View style={styles.infoLabelRow}>
+            <Text style={styles.infoIcon}>❧</Text>
+            <Text style={styles.infoLabel}> Peak Season</Text>
+          </View>
+          <Text style={styles.peakValue}>{peakSeason}</Text>
+        </View>
+      </View>
+
+      {/* Additional fact */}
+      <Text style={styles.sectionTitle}>Additional Fact:</Text>
+      <Text style={styles.description}>{localInfo}</Text>
+    </View>
+  );
+}
+
 export default function ResultScreen({navigation, route}: Props) {
   const {result} = route.params;
 
-  const speciesName = prettifyLabel(result.species);
-  const confidenceText = formatConfidence(result.confidence);
-  const localInfo = getLocalInfo(result.species);
-  const localName = getLocalName(result.species);
-  const peakSeason = getPeakSeason(result.species);
+  // ✅ Use all detections if available, fall back to single detection for
+  //    backward compatibility with any older navigation calls
+  const allDetections: Detection[] =
+    result.detections && result.detections.length > 0
+      ? result.detections
+      : result.detection
+      ? [result.detection]
+      : [];
+
+  const detectionCount = allDetections.length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -104,12 +151,12 @@ export default function ResultScreen({navigation, route}: Props) {
         <Text style={styles.backText}>‹</Text>
       </TouchableOpacity>
 
+      {/* Image with bounding box overlay — shows all boxes */}
       <View style={styles.imageWrapper}>
         <Image source={{uri: result.imageUri}} style={styles.image} />
-
-        {result.detection && (
+        {allDetections.length > 0 && (
           <DetectionBoxOverlay
-            detections={[result.detection]}
+            detections={allDetections}
             imageWidth={640}
             imageHeight={640}
             displayWidth={SCREEN_WIDTH}
@@ -123,32 +170,29 @@ export default function ResultScreen({navigation, route}: Props) {
         contentContainerStyle={styles.cardContent}
         showsVerticalScrollIndicator={false}>
 
-        <Text style={styles.smallLabel}>Local Name:</Text>
-        <Text style={styles.speciesTitle}>{speciesName}</Text>
-
-        <View style={styles.infoRow}>
-          <View style={styles.confidenceBlock}>
-            <View style={styles.infoLabelRow}>
-              <Text style={styles.infoIcon}>✦</Text>
-              <Text style={styles.infoLabel}> Confidence</Text>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <Text style={styles.detectionLabel}>Detections:</Text>
+          {detectionCount > 1 && (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>
+                {detectionCount} species found
+              </Text>
             </View>
-            <Text style={styles.confidenceValue}>{confidenceText}</Text>
-          </View>
-
-          <View style={styles.separator} />
-
-          <View style={styles.localBlock}>
-            <View style={styles.infoLabelRow}>
-              <Text style={styles.infoIcon}>❧</Text>
-              <Text style={styles.infoLabel}> Peak Season</Text>
-            </View>
-            <Text style={styles.peakValue}>{peakSeason}</Text>
-          </View>
+          )}
         </View>
 
-        <Text style={styles.sectionTitle}>Additional Fact:</Text>
-        <Text style={styles.description}>{localInfo}</Text>
+        {/* ✅ Render a card for every detected species */}
+        {allDetections.map((det, index) => (
+          <DetectionCard
+            key={`${det.label}-${index}`}
+            detection={det}
+            index={index}
+            isFirst={index === 0}
+          />
+        ))}
 
+        {/* Actions */}
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => navigation.navigate('Camera')}>
@@ -209,12 +253,70 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 32,
   },
-  smallLabel: {
+
+  // Header
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  detectionLabel: {
+    fontSize: 13,
+    color: '#2F6FED',
+    fontWeight: '700',
+  },
+  countBadge: {
+    backgroundColor: '#EEF3FF',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  countBadgeText: {
     fontSize: 11,
     color: '#2F6FED',
     fontWeight: '700',
-    marginBottom: 4,
   },
+
+  // Detection card
+  detectionCard: {
+    marginBottom: 20,
+  },
+  detectionCardBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#E1E6EF',
+    paddingTop: 20,
+  },
+  detectionBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 8,
+  },
+  detectionBadge: {
+    backgroundColor: '#F0F4FF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  detectionBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2F6FED',
+  },
+  topPickBadge: {
+    backgroundColor: '#000000',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  topPickText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // Species info
   speciesTitle: {
     fontSize: 28,
     fontWeight: '800',
@@ -273,12 +375,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     color: '#4C5A73',
-    marginBottom: 16,
+    marginBottom: 4,
   },
+
+  // Actions
   wrongText: {
     fontSize: 12,
     color: '#7E8CA6',
     textAlign: 'center',
+    marginTop: 8,
     marginBottom: 12,
   },
   scanAgainButton: {

@@ -39,7 +39,7 @@ export const FISH_DATA: Record<string, FishInfo> = {
     displayName: 'Tamarong',
     peakSeason: 'July-\nSeptember',
     additionalFact:
-      'Tamarong with a lonng and beautifully curved tail are typically gay.',
+      'Tamarong with a long and beautifully curved tail are typically gay.',
   },
   tikab: {
     label: 'tikab',
